@@ -1,10 +1,10 @@
-const { TeleBot } = require('telegram-bot-api');
+const TelegramBot = require('telegram-bot-api');
 const axios = require('axios');
 const http = require('http'); // Модуль для создания HTTP сервера
 
 // Получаем токен бота из переменных окружения
 // Убедитесь, что вы добавили BOT_TOKEN в Environment Variables на Render!
-const bot = new TeleBot(process.env.BOT_TOKEN);
+const bot = new TelegramBotprocess.env.BOT_TOKEN);
 
 // --- Вспомогательная функция для отправки основного меню ---
 // Клавиатура будет оставаться видимой, пока пользователь не выберет действие
