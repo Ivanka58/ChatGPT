@@ -1,0 +1,14 @@
+{
+  "name": "telegram-duckduckgo-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot with DuckDuckGo integration",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "telegram-bot-api": "^1.0.0",
+    "axios": "^0.21.1"
+  },
+  "devDependencies": {}
+}
