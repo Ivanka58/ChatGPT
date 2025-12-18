@@ -1,14 +1,17 @@
-{
-  "name": "telegram-duckduckgo-bot",
-  "version": "1.0.0",
-  "description": "Telegram bot with DuckDuckGo integration",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "telegram-bot-api": "^1.0.0",
-    "axios": "^0.21.1"
-  },
-  "devDependencies": {}
-}
+
+        {
+          "name": "my-telegram-bot",
+          "version": "1.0.0",
+          "description": "A Telegram chat bot",
+          "main": "index.js", // Убедись, что это есть
+          "scripts": {
+            "start": "node index.js", // ЭТО КРИТИЧЕСКИ ВАЖНО для 'yarn start'
+            "test": "echo \"Error: no test specified\" && exit 1"
+          },
+          "dependencies": {
+            "telegram-bot-api": "^1.0.0", // Используй актуальную версию
+            "axios": "^1.0.0"             // Используй актуальную версию
+          },
+          "author": "",
+          "license": "ISC"
+        }
