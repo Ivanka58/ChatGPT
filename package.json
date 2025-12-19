@@ -1,17 +1,16 @@
-
-        {
-          "name": "my-telegram-bot",
-          "version": "1.0.0",
-          "description": "A Telegram chat bot",
-          "main": "index.js", 
-          "scripts": {
-            "start": "node index.js",
-            "test": "echo \"Error: no test specified\" && exit 1"
-          },
-          "dependencies": {
-            "telegram-bot-api": "^1.0.0", 
-            "axios": "^1.6.2"             
-          },
-          "author": "",
-          "license": "ISC"
-        }
+{
+  "name": "my-telegram-bot",
+  "version": "1.0.0",
+  "description": "A Telegram chat bot powered by DuckDuckGo",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.61.0", // ИСПРАВЛЕНО: изменил на node-telegram-bot-api (и указал актуальную версию)
+    "axios": "^1.6.2"                     // Рекомендуется использовать актуальную версию axios
+  },
+  "author": "Your Name",
+  "license": "ISC"
+}
