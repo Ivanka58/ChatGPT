@@ -8,8 +8,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "node-telegram-bot-api": "^0.61.0", // ИСПРАВЛЕНО: изменил на node-telegram-bot-api (и указал актуальную версию)
-    "axios": "^1.6.2"                     // Рекомендуется использовать актуальную версию axios
+    "node-telegram-bot-api": "^0.61.0",
+    "axios": "^1.6.2"                   
   },
   "author": "Your Name",
   "license": "ISC"
