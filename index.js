@@ -5,6 +5,13 @@ const http = require('http');
 // Получаем токен бота из переменных окружения
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
+// --- НОВЫЕ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ДЛЯ НЕЙРОСЕТИ ---
+const HUGGING_FACE_API_KEY = process.env.HF_API_KEY; // Ваш токен Hugging Face API
+// Модель для использования. Можно попробовать другие, но gpt2 - это хороший старт
+// Для более качественных ответов, можно попробовать 'google/flan-t5-small' или 'tiiuae/falcon-7b-instruct',
+// но они могут быть медленнее или иметь более строгие лимиты для бесплатного использования.
+const HUGGING_FACE_MODEL_URL = "https://api-inference.huggingface.co/models/gpt2";
+
 // --- Вспомогательная функция для отправки основного меню ---
 async function sendMainMenu(chatId, message = 'Выберите действие:') {
   const keyboard = {
@@ -20,50 +27,82 @@ async function sendMainMenu(chatId, message = 'Выберите действие
   await bot.sendMessage(chatId, message, keyboard);
 }
 
-// --- Функция для получения мгновенного ответа от DuckDuckGo ---
-async function getInstantAnswer(query) {
-  console.log(`[DuckDuckGo] Attempting to get answer for query: "${query}"`);
+// --- НОВАЯ Функция для получения ответа от нейросети (Hugging Face) ---
+async function getAIAnswer(query) {
+  console.log(`[HuggingFace] Attempting to get AI answer for query: "${query}"`);
+
+  // Проверяем наличие API ключа
+  if (!HUGGING_FACE_API_KEY) {
+    console.error("[HuggingFace] HF_API_KEY is not set in environment variables.");
+    return "Ошибка: Ключ API для нейросети не настроен. Пожалуйста, свяжитесь с администратором.";
+  }
+
   try {
-    const response = await axios.get('https://api.duckduckgo.com/', {
-      params: {
-        q: query,
-        format: 'json',
-        nohtml: 1,
-        skip_disambig: 1
+    const response = await axios.post(
+      HUGGING_FACE_MODEL_URL,
+      {
+        inputs: query,
+        parameters: {
+          max_new_tokens: 150, // Максимальное количество новых токенов (слов) в ответе
+          temperature: 0.8,    // Температура генерации (от 0 до 1), влияет на "креативность". Выше = креативнее.
+          do_sample: true,     // Включить семплирование, чтобы ответы были разнообразнее
+          wait_for_model: true // Ждать, если модель загружается (может быть до 20 секунд на бесплатных тирах)
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${HUGGING_FACE_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000 // Таймаут 30 секунд для ожидания ответа от нейросети
       }
-    });
+    );
 
     const data = response.data;
-    console.log('[DuckDuckGo] Raw API response data:', JSON.stringify(data, null, 2));
+    console.log('[HuggingFace] Raw API response data:', JSON.stringify(data, null, 2));
 
-    if (data.AbstractText) {
-      console.log('[DuckDuckGo] Found AbstractText:', data.AbstractText);
-      return data.AbstractText;
-    }
-    else if (data.RelatedTopics && data.RelatedTopics.length > 0) {
-      const firstTopicText = data.RelatedTopics[0].Text;
-      console.log('[DuckDuckGo] Found RelatedTopic:', firstTopicText);
-      return firstTopicText || "Не могу найти прямой ответ по вашему запросу. Попробуйте перефразировать.";
-    }
-    else {
-      console.log('[DuckDuckGo] No AbstractText or RelatedTopics found for query:', query);
-      return "Не могу найти мгновенный ответ по вашему запросу. Возможно, тема слишком специфична или требует уточнения.";
+    if (data && Array.isArray(data) && data.length > 0 && data[0].generated_text) {
+      let generatedText = data[0].generated_text.trim();
+      
+      // Модели Hugging Face часто повторяют входной запрос в начале ответа.
+      // Попытаемся удалить его, чтобы ответ выглядел более естественно.
+      if (generatedText.toLowerCase().startsWith(query.trim().toLowerCase())) {
+        generatedText = generatedText.substring(query.trim().length).trim();
+      }
+
+      console.log('[HuggingFace] Generated AI text:', generatedText);
+      return generatedText || "Нейросеть сгенерировала пустой или нерелевантный ответ. Попробуйте другой запрос.";
+    } else {
+      console.log('[HuggingFace] Unexpected API response structure:', data);
+      return "Нейросеть не смогла сгенерировать ответ. Попробуйте перефразировать запрос.";
     }
   } catch (error) {
-    console.error('[DuckDuckGo] Error fetching instant answer:', error.message);
-    if (axios.isAxiosError(error) && error.response) {
-        console.error('[DuckDuckGo] Axios Error Response Data:', error.response.data);
-        console.error('[DuckDuckGo] Axios Error Response Status:', error.response.status);
+    console.error('[HuggingFace] Error fetching AI answer:', error.message);
+    if (axios.isAxiosError(error)) {
+      if (error.response) {
+        console.error('[HuggingFace] Axios Error Response Data:', error.response.data);
+        console.error('[HuggingFace] Axios Error Response Status:', error.response.status);
+        if (error.response.status === 429) { // Слишком много запросов
+            return "Слишком много запросов к нейросети. Пожалуйста, подождите немного и попробуйте снова.";
+        }
+        if (error.response.status === 503) { // Модель загружается или перегружена
+            return "Нейросеть загружается или перегружена. Пожалуйста, подождите 10-20 секунд и попробуйте снова. Модель " + HUGGING_FACE_MODEL_URL.split('/').pop() + " может запускаться медленно.";
+        }
+      } else if (error.request) {
+        console.error('[HuggingFace] Axios Error No Response (timeout or network):', error.request);
+        return "Нейросеть не ответила вовремя. Пожалуйста, попробуйте еще раз позже.";
+      } else {
+        console.error('[HuggingFace] Axios Error Message:', error.message);
+      }
     } else {
-        console.error('[DuckDuckGo] Full Error Object:', error);
+      console.error('[HuggingFace] Full Error Object:', error);
     }
-    return "Произошла ошибка при поиске ответа. Пожалуйста, попробуйте еще раз позже.";
+    return "Произошла ошибка при получении ответа от нейросети. Пожалуйста, попробуйте еще раз позже.";
   }
 }
 
 // --- Обработчик команды /start ---
-bot.onText(/\/start/, async (msg) => { // ВНИМАНИЕ: ПРОВЕРЬТЕ ЭТУ СТРОКУ! /start/
-
+bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   await bot.sendMessage(chatId, 'Привет, я бесплатный чат. Если ты сюда попал, значит я лично дал тебе доступ. Поздравляю! Ты избранный! Развлекайся 💘');
   await sendMainMenu(chatId);
@@ -100,7 +139,7 @@ bot.on('message', async (msg) => {
   else if (!text.startsWith('/')) {
     if (text.trim().length > 0) {
       await bot.sendChatAction(chatId, 'typing');
-      const answer = await getInstantAnswer(text);
+      const answer = await getAIAnswer(text); // ИСПОЛЬЗУЕМ НОВУЮ ФУНКЦИЮ НЕЙРОСЕТИ
       await bot.sendMessage(chatId, answer);
     } else {
       await bot.sendMessage(chatId, "Пожалуйста, введите ваш вопрос.");
@@ -115,7 +154,7 @@ function sendAliveMessage() {
 }
 
 // --- Отправка сообщения "Я жив!" каждые 10 минут ---
-setInterval(sendAliveMessage, 10 × 60 × 1000);
+setInterval(sendAliveMessage, 10 * 60 * 1000);
 
 // --- HTTP сервер для Render ---
 const PORT = process.env.PORT || 3000;
