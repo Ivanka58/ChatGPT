@@ -1,7 +1,7 @@
 {
   "name": "my-telegram-bot",
   "version": "1.0.0",
-  "description": "A Telegram chat bot powered by DuckDuckGo",
+  "description": "A Telegram chat bot powered by Hugging Face AI",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.61.0",
-    "axios": "^1.6.2"                   
+    "axios": "^1.6.2"                     
   },
   "author": "ivanka58",
   "license": "ISC"
