@@ -5,11 +5,13 @@ const http = require('http');
 // Получаем токен бота из переменных окружения
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// --- НОВЫЕ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ И URL ДЛЯ НЕЙРОСЕТИ ---
+// --- ПЕРЕМЕННЫЕ ДЛЯ НЕЙРОСЕТИ ---
 const HUGGING_FACE_API_KEY = process.env.HF_API_KEY; // Ваш токен Hugging Face API
-// ВНИМАНИЕ: Замените "google/flan-t5-small" на ID выбранной вами модели с huggingface.co
-const HUGGING_FACE_MODEL_ID = "openai-community/gpt2";
-// ИСПРАВЛЕНО: Обновленный базовый URL для Hugging Face Inference API
+
+// ВНИМАНИЕ: Замените "google/flan-t5-small" на ТОЧНЫЙ ID выбранной вами модели с huggingface.co
+// Пример хороших бесплатных моделей: "google/flan-t5-small", "2", "facebook/opt-125m", "tiiuae/falcon-7b-instruct"
+const HUGGING_FACE_MODEL_ID = "google/flan-t5-small"; // <<<--- ВАЖНО: ПРОВЕРЬТЕ ЭТОТ ID ЕЩЕ РАЗ!
+
 const HUGGING_FACE_API_URL = `https://router.huggingface.co/models/${HUGGING_FACE_MODEL_ID}`;
 
 
@@ -28,9 +30,10 @@ async function sendMainMenu(chatId, message = 'Выберите действие
   await bot.sendMessage(chatId, message, keyboard);
 }
 
-// --- НОВАЯ Функция для получения ответа от нейросети (Hugging Face) ---
+// --- Функция для получения ответа от нейросети (Hugging Face) ---
 async function getAIAnswer(query) {
-  console.log(`[HuggingFace] Attempting to get AI answer for query: "${query}" using model ${HUGGING_FACE_MODEL_ID}`);
+  console.log(`[HuggingFace] Attempting to get AI answer for query: "${query}" using model ID: "${HUGGING_FACE_MODEL_ID}"`);
+  console.log(`[HuggingFace] Generated API URL: "${HUGGING_FACE_API_URL}"`); // НОВОЕ ЛОГИРОВАНИЕ URL
 
   // Проверяем наличие API ключа
   if (!HUGGING_FACE_API_KEY) {
@@ -40,14 +43,14 @@ async function getAIAnswer(query) {
 
   try {
     const response = await axios.post(
-      HUGGING_FACE_API_URL, // ИСПОЛЬЗУЕМ НОВЫЙ URL
+      HUGGING_FACE_API_URL,
       {
         inputs: query,
         parameters: {
-          max_new_tokens: 150, // Максимальное количество новых токенов (слов) в ответе
-          temperature: 0.8,    // Температура генерации (от 0 до 1), влияет на "креативность". Выше = креативнее.
-          do_sample: true,     // Включить семплирование, чтобы ответы были разнообразнее
-          wait_for_model: true // Ждать, если модель загружается (может быть до 20 секунд на бесплатных тирах)
+          max_new_tokens: 150,
+          temperature: 0.8,
+          do_sample: true,
+          wait_for_model: true
         }
       },
       {
@@ -55,7 +58,7 @@ async function getAIAnswer(query) {
           'Authorization': `Bearer ${HUGGING_FACE_API_KEY}`,
           'Content-Type': 'application/json'
         },
-        timeout: 60000 // Увеличиваем таймаут до 60 секунд на случай долгой загрузки модели
+        timeout: 60000 // Увеличен таймаут до 60 секунд
       }
     );
 
@@ -65,13 +68,9 @@ async function getAIAnswer(query) {
     if (data && Array.isArray(data) && data.length > 0 && data[0].generated_text) {
       let generatedText = data[0].generated_text.trim();
       
-      // Модели Hugging Face часто повторяют входной запрос в начале ответа.
-      // Попытаемся удалить его, чтобы ответ выглядел более естественно.
-      // Добавим более надежную проверку, чтобы избежать ошибок с substring, если запрос не найден
       if (generatedText.toLowerCase().startsWith(query.trim().toLowerCase())) {
         generatedText = generatedText.substring(query.trim().length).trim();
       }
-      // Также уберем лишние символы в начале, если модель генерирует их
       generatedText = generatedText.replace(/^['"\s]+/, '').replace(/['"\s]+$/, '');
 
 
@@ -90,8 +89,14 @@ async function getAIAnswer(query) {
         if (error.response.status === 429) {
             return "Слишком много запросов к нейросети. Пожалуйста, подождите немного и попробуйте снова.";
         }
-        if (error.response.status === 503 || error.response.status === 504) { // 504 Gateway Timeout также может быть из-за загрузки модели
+        if (error.response.status === 503 || error.response.status === 504) {
             return "Нейросеть загружается или перегружена. Пожалуйста, подождите 10-20 секунд и попробуйте снова. Модель " + HUGGING_FACE_MODEL_ID + " может запускаться медленно.";
+        }
+        if (error.response.status === 404) {
+            return `Ошибка: Модель "${HUGGING_FACE_MODEL_ID}" не найдена или недоступна. Пожалуйста, проверьте ID модели.`;
+        }
+        if (error.response.status === 401 || error.response.status === 403) {
+            return "Ошибка авторизации с нейросетью. Проверьте ваш API-ключ Hugging Face.";
         }
       } else if (error.request) {
         console.error('[HuggingFace] Axios Error No Response (timeout or network):', error.request);
