@@ -1,13 +1,13 @@
-const TelegramBot = require('telegram-bot-api');
+const TelegramBot = require('node-telegram-bot-api'); // ИСПРАВЛЕНО: используем 'node-telegram-bot-api'
 const axios = require('axios');
 const http = require('http'); // Модуль для создания HTTP сервера
 
 // Получаем токен бота из переменных окружения
 // Убедитесь, что вы добавили BOT_TOKEN в Environment Variables на Render!
-const bot = new TelegramBot(process.env.BOT_TOKEN);
+// ИСПРАВЛЕНО: добавляем { polling: true } для запуска бота
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
 // --- Вспомогательная функция для отправки основного меню ---
-// Клавиатура будет оставаться видимой, пока пользователь не выберет действие
 async function sendMainMenu(chatId, message = 'Выберите действие:') {
   const keyboard = {
     reply_markup: {
@@ -23,14 +23,8 @@ async function sendMainMenu(chatId, message = 'Выберите действие
 }
 
 // --- Функция для получения мгновенного ответа от DuckDuckGo ---
-// Эта функция теперь полностью реализована и использует API DuckDuckGo
 async function getInstantAnswer(query) {
   try {
-    // API DuckDuckGo Instant Answer
-    // 'q': запрос
-    // 'format': 'json' для получения JSON-ответа
-    // 'nohtml': 1 для удаления HTML-тегов из ответа
-    // 'skip_disambig': 1 для пропуска страниц с неоднозначностями, если есть прямой ответ
     const response = await axios.get('https://api.duckduckgo.com/', {
       params: {
         q: query,
@@ -42,17 +36,13 @@ async function getInstantAnswer(query) {
 
     const data = response.data;
 
-    // Предпочтительный ответ: AbstractText (мгновенный ответ)
     if (data.AbstractText) {
       return data.AbstractText;
     }
-    // Если нет AbstractText, ищем в RelatedTopics (связанные темы)
     else if (data.RelatedTopics && data.RelatedTopics.length > 0) {
-      // Пытаемся взять текст первой связанной темы
       const firstTopicText = data.RelatedTopics[0].Text;
       return firstTopicText || "Не могу найти прямой ответ по вашему запросу. Попробуйте перефразировать.";
     }
-    // Если ничего не найдено
     else {
       return "Не могу найти мгновенный ответ по вашему запросу. Возможно, тема слишком специфична или требует уточнения.";
     }
@@ -63,7 +53,7 @@ async function getInstantAnswer(query) {
 }
 
 // --- Обработчик команды /start ---
-bot.on('/start', async (msg) => {
+bot.onText(/\/start/, async (msg) => { // ИСПРАВЛЕНО: для node-telegram-bot-api лучше использовать onText для команд
   const chatId = msg.chat.id;
 
   // Приветственное сообщение
@@ -74,16 +64,20 @@ bot.on('/start', async (msg) => {
 });
 
 // --- Единый обработчик для всех текстовых сообщений ---
-// Этот обработчик теперь содержит всю логику для текстовых команд и вопросов
-bot.on('text', async (msg) => {
+
+// Для node-telegram-bot-api, bot.on('text', ...) тоже работает, но on('message') более общий
+// Оставим bot.on('text') для совместимости, но учтем, что он реагирует на ВСЕ текстовые сообщения
+bot.on('message', async (msg) => { // ИСПРАВЛЕНО: Используем 'message' для перехвата всех сообщений, включая текстовые
   const chatId = msg.chat.id;
   const text = msg.text;
+
+  // Если сообщение не текстовое, игнорируем его
+  if (!text) return;
 
   // Обработка команд меню
   if (text === 'Начать общение') {
     await bot.sendMessage(chatId, 'Задавайте ваш вопрос:');
   } else if (text === 'Очистить историю диалога') {
-    // Отправляем подтверждение с новой временной клавиатурой
     await bot.sendMessage(chatId, 'Внимание! Вы точно хотите удалить историю диалога? Её невозможно восстановить!', {
       reply_markup: {
         keyboard: [
@@ -91,28 +85,23 @@ bot.on('text', async (msg) => {
           [{ text: 'Отмена' }]
         ],
         resize_keyboard: true,
-        one_time_keyboard: true // Эта клавиатура исчезнет после выбора
+        one_time_keyboard: true
       }
     });
   }
   // Обработка подтверждения очистки
   else if (text === 'Удалить ❌') {
-    // !!! ВНИМАНИЕ: Здесь нет реальной логики очистки истории.
-    // Если у вас есть база данных или файл для хранения истории,
-    // вам нужно будет добавить сюда код для удаления данных пользователя.
     await bot.sendMessage(chatId, 'История диалога очищена.');
-    await sendMainMenu(chatId, 'Что вы хотите сделать дальше?'); // Возвращаем основное меню
+    await sendMainMenu(chatId, 'Что вы хотите сделать дальше?');
   } else if (text === 'Отмена') {
     await bot.sendMessage(chatId, 'Очистка истории диалога отменена.');
-    await sendMainMenu(chatId, 'Что вы хотите сделать дальше?'); // Возвращаем основное меню
+    await sendMainMenu(chatId, 'Что вы хотите сделать дальше?');
   }
   // Обработка любого другого текста как вопроса к DuckDuckGo
-  else {
-    // Проверяем, что запрос не пустой после удаления пробелов
+  else if (!text.startsWith('/')) { // ИСПРАВЛЕНО: Игнорируем команды, которые начинаются с '/'
     if (text.trim().length > 0) {
-      // Отправляем "печатает..." для лучшего пользовательского опыта
       await bot.sendChatAction(chatId, 'typing');
-      const answer = await getInstantAnswer(text); // Получаем ответ от DuckDuckGo
+      const answer = await getInstantAnswer(text);
       await bot.sendMessage(chatId, answer);
     } else {
       await bot.sendMessage(chatId, "Пожалуйста, введите ваш вопрос.");
@@ -120,34 +109,24 @@ bot.on('text', async (msg) => {
   }
 });
 
+
 // --- Функция для отправки сообщения "Я жив!" каждые 10 минут ---
 function sendAliveMessage() {
-  // Убедитесь, что это ID вашего личного чата или чата для мониторинга
-  // Это позволит вам знать, что бот активен
   const chatId = 6749286679; // Ваш ID чата
   bot.sendMessage(chatId, 'Я жив!');
 }
 
-// --- Запуск бота ---
-// Бот начинает слушать входящие сообщения от Telegram API
-bot.start();
-
 // --- Отправка сообщения "Я жив!" каждые 10 минут ---
-// Это помогает убедиться, что ваш бот не "заснет" на бесплатных планах некоторых хостингов,
-// хотя Render обычно не требует таких ухищрений, но это хорошая практика для мониторинга.
-setInterval(sendAliveMessage, 10 * 60 * 1000); // 10 минут * 60 секунд * 1000 миллисекунд
+setInterval(sendAliveMessage, 10 × 60 × 1000); // 10 минут * 60 секунд * 1000 миллисекунд
 
 // --- HTTP сервер для Render ---
-// Render требует, чтобы ваш веб-сервис слушал входящие HTTP-запросы на определенном порту.
-// Порт предоставляется через переменную окружения `PORT`.
-const PORT = process.env.PORT || 3000; // Используем порт от Render или 3000 для локальной разработки
+const PORT = process.env.PORT || 3000;
 
 const server = http.createServer((req, res) => {
-  // Отправляем простой ответ, чтобы Render знал, что сервис запущен и отвечает.
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Telegram Bot HTTP Server is running and responding to health checks.');
 });
 
 server.listen(PORT, () => {
- console.log(HTTP server is running on port ${PORT});
+  console.log(`HTTP server is running on port ${PORT}`);
 });
