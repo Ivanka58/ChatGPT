@@ -117,7 +117,7 @@ function sendAliveMessage() {
 }
 
 // --- Отправка сообщения "Я жив!" каждые 10 минут ---
-setInterval(sendAliveMessage, 10 × 60 × 1000); // 10 минут * 60 секунд * 1000 миллисекунд
+setInterval(sendAliveMessage, 10 * 60 * 1000); // 10 минут * 60 секунд * 1000 миллисекунд
 
 // --- HTTP сервер для Render ---
 const PORT = process.env.PORT || 3000;
