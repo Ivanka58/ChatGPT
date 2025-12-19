@@ -8,7 +8,7 @@ const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 // --- НОВЫЕ ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ И URL ДЛЯ НЕЙРОСЕТИ ---
 const HUGGING_FACE_API_KEY = process.env.HF_API_KEY; // Ваш токен Hugging Face API
 // ВНИМАНИЕ: Замените "google/flan-t5-small" на ID выбранной вами модели с huggingface.co
-const HUGGING_FACE_MODEL_ID = "google/flan-t5-small";
+const HUGGING_FACE_MODEL_ID = "openai-community/gpt2";
 // ИСПРАВЛЕНО: Обновленный базовый URL для Hugging Face Inference API
 const HUGGING_FACE_API_URL = `https://router.huggingface.co/models/${HUGGING_FACE_MODEL_ID}`;
 
