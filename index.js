@@ -30,7 +30,7 @@ async function sendMainMenu(chatId, message = 'Выберите действие
   await bot.sendMessage(chatId, message, keyboard);
 }
 
-// --- НОВАЯ Функция для пересылки запроса другому AI-боту ---
+// --- Функция для пересылки запроса другому AI-боту ---
 async function forwardToAIBot(chatId, query) {
   console.log(`[Proxy AI] User ${chatId} asked: "${query}"`);
 
@@ -58,7 +58,6 @@ async function forwardToAIBot(chatId, query) {
 // --- Обработчик команды /start ---
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
-
   await bot.sendMessage(chatId, 'Привет, я бесплатный чат. Если ты сюда попал, значит я лично дал тебе доступ. Поздравляю! Ты избранный! Развлекайся 💘');
   await sendMainMenu(chatId);
 });
@@ -112,7 +111,7 @@ bot.on('message', async (msg) => {
   else if (!text.startsWith('/')) {
     if (text.trim().length > 0) {
       await bot.sendChatAction(chatId, 'typing');
-      await forwardToAIBot(chatId, text); // ИСПОЛЬЗУЕМ НОВУЮ ФУНКЦИЮ ПРОКСИ
+      await forwardToAIBot(chatId, text); // ИСПОЛЬЗУЕМ ФУНКЦИЮ ПРОКСИ
     } else {
       await bot.sendMessage(chatId, "Пожалуйста, введите ваш вопрос.");
     }
@@ -122,11 +121,12 @@ bot.on('message', async (msg) => {
 // --- Функция для отправки сообщения "Я жив!" каждые 10 минут ---
 function sendAliveMessage() {
   const chatId = 6749286679; // Ваш ID чата
-  bot.sendMessage(chatId, 'Я жив!');
+  // Добавлена обработка ошибок для отправки сообщения, чтобы не крашить бота
+  bot.sendMessage(chatId, 'Я жив! (Ping)').catch(err => console.error("Error sending alive message:", err.message));
 }
 
 // --- Отправка сообщения "Я жив!" каждые 10 минут ---
-setInterval(sendAliveMessage, 10 × 60 × 1000);
+setInterval(sendAliveMessage, 10 * 60 * 1000); // ИСПРАВЛЕНО ЗДЕСЬ!
 
 // --- HTTP сервер для Render ---
 const PORT = process.env.PORT || 3000;
