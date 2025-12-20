@@ -45,7 +45,7 @@ async function forwardToAIBot(chatId, query) {
 
   try {
     // ФОРМИРУЕМ ЗАПРОС С УПОМИНАНИЕМ AI-БОТА
-    const messageForAIBot = `@${TARGET_AI_BOT_USERNAME} ${query}`; 
+    const messageForAIBot = `${TARGET_AI_BOT_USERNAME} ${query}`; 
     console.log(`[Proxy AI] Sending to group ${INTERMEDIARY_GROUP_CHAT_ID}: "${messageForAIBot}"`);
 
     // Отправляем сообщение в групповой чат, где присутствуют оба бота.
