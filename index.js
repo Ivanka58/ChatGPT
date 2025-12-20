@@ -1,17 +1,21 @@
 const TelegramBot = require('node-telegram-bot-api');
-const axios = require('axios'); // Axios все еще нужен для HTTP сервера Render
+const axios = require('axios');
 const http = require('http');
 
 // Получаем токен бота из переменных окружения
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// --- НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ ПРОКСИРОВАНИЯ К ДРУГОМУ БОТУ ---
-// ВНИМАНИЕ: Замените "AI_BOT_USERNAME" на @username или ID реального публичного AI-бота в Telegram!
-// Например: "@AItg_bot" (без @, если это ID, или с @, если username).
+// --- НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ ПРОКСИРОВАНИЯ К ДРУГОМУ БОТУ ЧЕРЕЗ ГРУППУ ---
+// ID или @username реального публичного AI-бота в Telegram.
+// ВНИМАНИЕ: Если это username, укажите его БЕЗ символа '@' в переменной окружения Render.
+// Например, для @gigachat_bot здесь должно быть "gigachat_bot". Код сам добавит '@'.
 const TARGET_AI_BOT_USERNAME = process.env.TARGET_AI_BOT_USERNAME; 
+// ID группового чата, в котором будут общаться наши боты.
+// Получи его с помощью @get_id_bot или другим способом (отрицательное число, например -1234567890123).
+const INTERMEDIARY_GROUP_CHAT_ID = process.env.INTERMEDIARY_GROUP_CHAT_ID;
 
 // --- Хранение запросов для связывания ответов ---
-// Это простое хранилище: { id_сообщения_от_нашего_бота: id_чата_пользователя }
+// { id_сообщения_от_нашего_бота_в_группе: id_чата_пользователя }
 const pendingQueries = {};
 
 
@@ -30,27 +34,30 @@ async function sendMainMenu(chatId, message = 'Выберите действие
   await bot.sendMessage(chatId, message, keyboard);
 }
 
-// --- Функция для пересылки запроса другому AI-боту ---
+// --- Функция для пересылки запроса другому AI-боту через группу ---
 async function forwardToAIBot(chatId, query) {
   console.log(`[Proxy AI] User ${chatId} asked: "${query}"`);
 
-  if (!TARGET_AI_BOT_USERNAME) {
-    console.error("[Proxy AI] TARGET_AI_BOT_USERNAME is not set.");
-    return bot.sendMessage(chatId, "Ошибка: Наш AI-бот-помощник не настроен. Пожалуйста, свяжитесь с администратором.");
+  if (!TARGET_AI_BOT_USERNAME || !INTERMEDIARY_GROUP_CHAT_ID) {
+    console.error("[Proxy AI] TARGET_AI_BOT_USERNAME or INTERMEDIARY_GROUP_CHAT_ID is not set.");
+    return bot.sendMessage(chatId, "Ошибка: Наш AI-бот-помощник или групповой чат не настроены. Пожалуйста, свяжитесь с администратором.");
   }
 
   try {
-    // Отправляем сообщение напрямую другому боту
-    const sentMessage = await bot.sendMessage(TARGET_AI_BOT_USERNAME, query);
+    // ФОРМИРУЕМ ЗАПРОС С УПОМИНАНИЕМ AI-БОТА
+    const messageForAIBot = `@${TARGET_AI_BOT_USERNAME} ${query}`; 
+    console.log(`[Proxy AI] Sending to group ${INTERMEDIARY_GROUP_CHAT_ID}: "${messageForAIBot}"`);
+
+    // Отправляем сообщение в групповой чат, где присутствуют оба бота.
+    const sentMessage = await bot.sendMessage(INTERMEDIARY_GROUP_CHAT_ID, messageForAIBot);
     
     // Сохраняем информацию, чтобы знать, кому отвечать, когда придет ответ от AI-бота
-    // Мы ожидаем, что AI-бот ответит в чат с нашим ботом, а не в чат с пользователем напрямую
-    pendingQueries[sentMessage.message_id] = chatId; // pendingQueries[id нашего сообщения к AI-боту] = id чата пользователя
+    pendingQueries[sentMessage.message_id] = chatId; // pendingQueries[id нашего сообщения в группе] = id чата пользователя
 
     await bot.sendMessage(chatId, "AI думает...", { reply_to_message_id: sentMessage.message_id });
 
   } catch (error) {
-    console.error('[Proxy AI] Error forwarding message to AI bot:', error.message);
+    console.error('[Proxy AI] Error forwarding message to AI bot via group:', error.message);
     return bot.sendMessage(chatId, "Произошла ошибка при отправке запроса AI. Пожалуйста, попробуйте еще раз позже.");
   }
 }
@@ -69,13 +76,14 @@ bot.on('message', async (msg) => {
 
   if (!text) return;
 
-  // --- Если это ответ от AI-бота, который мы отправили ему ранее ---
-  // Проверяем, есть ли поле 'reply_to_message' и является ли его ID нашим сообщением
-  if (msg.reply_to_message && pendingQueries[msg.reply_to_message.message_id]) {
+  // --- Если это сообщение пришло из нашей *промежуточной группы* ---
+  if (String(chatId) === String(INTERMEDIARY_GROUP_CHAT_ID)) { // Сравниваем как строки, чтобы избежать проблем с типами
+    // Проверяем, является ли это ответом от *нашего* сообщения, отправленного в группу
+    if (msg.reply_to_message && pendingQueries[msg.reply_to_message.message_id]) {
       const originalUserChatId = pendingQueries[msg.reply_to_message.message_id];
       const aiResponseText = msg.text;
 
-      console.log(`[Proxy AI] Received AI response for original user ${originalUserChatId}: "${aiResponseText.substring(0, 50)}..."`);
+      console.log(`[Proxy AI] Received AI response from group for original user ${originalUserChatId}: "${aiResponseText.substring(0, 50)}..."`);
       
       // Отправляем ответ AI пользователю
       await bot.sendMessage(originalUserChatId, aiResponseText);
@@ -83,9 +91,10 @@ bot.on('message', async (msg) => {
       // Удаляем запрос из очереди
       delete pendingQueries[msg.reply_to_message.message_id];
       return; // Обработали ответ AI, дальше не идем
+    }
   }
 
-  // --- Обработка команд и запросов пользователя ---
+  // --- Обработка команд и запросов пользователя (если сообщение пришло не из промежуточной группы) ---
   if (text === 'Начать общение') {
     await bot.sendMessage(chatId, 'Задавайте ваш вопрос:');
   } else if (text === 'Очистить историю диалога') {
@@ -107,7 +116,7 @@ bot.on('message', async (msg) => {
     await bot.sendMessage(chatId, 'Очистка истории диалога отменена.');
     await sendMainMenu(chatId, 'Что вы хотите сделать дальше?');
   }
-  // Пересылаем все остальные текстовые сообщения AI-боту
+  // Пересылаем все остальные текстовые сообщения AI-боту через группу
   else if (!text.startsWith('/')) {
     if (text.trim().length > 0) {
       await bot.sendChatAction(chatId, 'typing');
@@ -126,7 +135,7 @@ function sendAliveMessage() {
 }
 
 // --- Отправка сообщения "Я жив!" каждые 10 минут ---
-setInterval(sendAliveMessage, 10 * 60 * 1000); // ИСПРАВЛЕНО ЗДЕСЬ!
+setInterval(sendAliveMessage, 10 * 60 * 1000);
 
 // --- HTTP сервер для Render ---
 const PORT = process.env.PORT || 3000;
