@@ -10,8 +10,7 @@ const HUGGING_FACE_API_KEY = process.env.HF_API_KEY; // Ваш токен Huggin
 
 // ВНИМАНИЕ: Замените "google/flan-t5-small" на ТОЧНЫЙ ID выбранной вами модели с huggingface.co
 // Пример хороших бесплатных моделей: "google/flan-t5-small", "2", "facebook/opt-125m", "tiiuae/falcon-7b-instruct"
-const HUGGING_FACE_MODEL_ID = "microsoft/Phi-4-mini-instruct"; // <<<--- ВАЖНО: ПРОВЕРЬТЕ ЭТОТ ID ЕЩЕ РАЗ!
-
+const HUGGING_FACE_MODEL_ID = "2"// <<<--- ВАЖН
 const HUGGING_FACE_API_URL = `https://router.huggingface.co/models/${HUGGING_FACE_MODEL_ID}`;
 
 
