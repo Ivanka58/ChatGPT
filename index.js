@@ -5,18 +5,27 @@ const http = require('http');
 // Получаем токен бота из переменных окружения
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// --- НОВЫЕ ПЕРЕМЕННЫЕ ДЛЯ ПРОКСИРОВАНИЯ К ДРУГОМУ БОТУ ЧЕРЕЗ ГРУППУ ---
+// --- ПЕРЕМЕННЫЕ ДЛЯ ПРОКСИРОВАНИЯ К ДРУГОМУ БОТУ ЧЕРЕЗ ГРУППУ ---
 // ID или @username реального публичного AI-бота в Telegram.
 // ВНИМАНИЕ: Если это username, укажите его БЕЗ символа '@' в переменной окружения Render.
 // Например, для @gigachat_bot здесь должно быть "gigachat_bot". Код сам добавит '@'.
 const TARGET_AI_BOT_USERNAME = process.env.TARGET_AI_BOT_USERNAME; 
 // ID группового чата, в котором будут общаться наши боты.
 // Получи его с помощью @get_id_bot или другим способом (отрицательное число, например -1234567890123).
-const INTERMEDIARY_GROUP_CHAT_ID = process.env.INTERMEDIARY_GROUP_CHAT_ID;
+const INTERMEDIARY_GROUP_CHAT_ID_STR = process.env.INTERMEDIARY_GROUP_CHAT_ID; // Получаем как строку
+const INTERMEDIARY_GROUP_CHAT_ID = Number(INTERMEDIARY_GROUP_CHAT_ID_STR); // Преобразуем в число сразу
 
 // --- Хранение запросов для связывания ответов ---
 // { id_сообщения_от_нашего_бота_в_группе: id_чата_пользователя }
 const pendingQueries = {};
+
+// --- Вспомогательная функция для экранирования символов MarkdownV2 ---
+function escapeMarkdownV2(text) {
+    // Символы, которые нужно экранировать в MarkdownV2:
+    // _ * [ ] ( ) ~ ` > # + - = | { } . !
+    // Слэш \ не экранируется, если он сам не является частью текста
+    return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
+}
 
 
 // --- Вспомогательная функция для отправки основного меню ---
@@ -38,18 +47,27 @@ async function sendMainMenu(chatId, message = 'Выберите действие
 async function forwardToAIBot(chatId, query) {
   console.log(`[Proxy AI] User ${chatId} asked: "${query}"`);
 
-  if (!TARGET_AI_BOT_USERNAME || !INTERMEDIARY_GROUP_CHAT_ID) {
-    console.error("[Proxy AI] TARGET_AI_BOT_USERNAME or INTERMEDIARY_GROUP_CHAT_ID is not set.");
-    return bot.sendMessage(chatId, "Ошибка: Наш AI-бот-помощник или групповой чат не настроены. Пожалуйста, свяжитесь с администратором.");
+  if (!TARGET_AI_BOT_USERNAME || !INTERMEDIARY_GROUP_CHAT_ID_STR || isNaN(INTERMEDIARY_GROUP_CHAT_ID)) {
+    console.error("[Proxy AI] TARGET_AI_BOT_USERNAME or INTERMEDIARY_GROUP_CHAT_ID is not set or invalid (not a number).");
+    return bot.sendMessage(chatId, "Ошибка: Наш AI-бот-помощник или групповой чат не настроены или ID группы неверный. Пожалуйста, свяжитесь с администратором.");
   }
 
   try {
-    // ФОРМИРУЕМ ЗАПРОС С УПОМИНАНИЕМ AI-БОТА
-    const messageForAIBot = `${TARGET_AI_BOT_USERNAME} ${query}`; 
-    console.log(`[Proxy AI] Sending to group ${INTERMEDIARY_GROUP_CHAT_ID}: "${messageForAIBot}"`);
+    // Экранируем пользовательский запрос для MarkdownV2
+    const escapedQuery = escapeMarkdownV2(query);
+    
+    // Формируем запрос с явным упоминанием AI-бота, используя Zero Width Non-Joiner (U+200C)
+    // и MarkdownV2 для создания сущности упоминания.
+    // Это должно помочь GigaChat увидеть себя упомянутым.
+    const messageForAIBot = `@\u200C${TARGET_AI_BOT_USERNAME} ${escapedQuery}`; 
+    console.log(`[Proxy AI] Sending formatted message "${messageForAIBot}" to group ID: ${INTERMEDIARY_GROUP_CHAT_ID}`);
 
-    // Отправляем сообщение в групповой чат, где присутствуют оба бота.
-    const sentMessage = await bot.sendMessage(INTERMEDIARY_GROUP_CHAT_ID, messageForAIBot);
+    // Отправляем сообщение в групповой чат
+    const sentMessage = await bot.sendMessage(
+      INTERMEDIARY_GROUP_CHAT_ID,
+      messageForAIBot,
+      { parse_mode: 'MarkdownV2' } // ОБЯЗАТЕЛЬНО указываем parse_mode
+    );
     
     // Сохраняем информацию, чтобы знать, кому отвечать, когда придет ответ от AI-бота
     pendingQueries[sentMessage.message_id] = chatId; // pendingQueries[id нашего сообщения в группе] = id чата пользователя
@@ -58,6 +76,12 @@ async function forwardToAIBot(chatId, query) {
 
   } catch (error) {
     console.error('[Proxy AI] Error forwarding message to AI bot via group:', error.message);
+    if (error.response && error.response.data && error.response.data.description) {
+        console.error('[Proxy AI] Telegram API Error description:', error.response.data.description);
+        if (error.response.data.description.includes("group chat was upgraded to a supergroup")) {
+            return bot.sendMessage(chatId, "Ошибка Telegram API: Кажется, ID вашей промежуточной группы устарел. Пожалуйста, пересоздайте группу и получите новый ID, или проверьте, что ID группы в Render актуален.");
+        }
+    }
     return bot.sendMessage(chatId, "Произошла ошибка при отправке запроса AI. Пожалуйста, попробуйте еще раз позже.");
   }
 }
@@ -77,7 +101,7 @@ bot.on('message', async (msg) => {
   if (!text) return;
 
   // --- Если это сообщение пришло из нашей *промежуточной группы* ---
-  if (String(chatId) === String(INTERMEDIARY_GROUP_CHAT_ID)) { // Сравниваем как строки, чтобы избежать проблем с типами
+  if (chatId === INTERMEDIARY_GROUP_CHAT_ID) { 
     // Проверяем, является ли это ответом от *нашего* сообщения, отправленного в группу
     if (msg.reply_to_message && pendingQueries[msg.reply_to_message.message_id]) {
       const originalUserChatId = pendingQueries[msg.reply_to_message.message_id];
@@ -130,7 +154,6 @@ bot.on('message', async (msg) => {
 // --- Функция для отправки сообщения "Я жив!" каждые 10 минут ---
 function sendAliveMessage() {
   const chatId = 6749286679; // Ваш ID чата
-  // Добавлена обработка ошибок для отправки сообщения, чтобы не крашить бота
   bot.sendMessage(chatId, 'Я жив! (Ping)').catch(err => console.error("Error sending alive message:", err.message));
 }
 
