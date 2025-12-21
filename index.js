@@ -6,24 +6,20 @@ const http = require('http');
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
 // --- ПЕРЕМЕННЫЕ ДЛЯ ПРОКСИРОВАНИЯ К ДРУГОМУ БОТУ ЧЕРЕЗ ГРУППУ ---
-// ID или @username реального публичного AI-бота в Telegram.
 // ВНИМАНИЕ: Если это username, укажите его БЕЗ символа '@' в переменной окружения Render.
-// Например, для @gigachat_bot здесь должно быть "gigachat_bot". Код сам добавит '@'.
 const TARGET_AI_BOT_USERNAME = process.env.TARGET_AI_BOT_USERNAME; 
 // ID группового чата, в котором будут общаться наши боты.
-// Получи его с помощью @get_id_bot или другим способом (отрицательное число, например -1234567890123).
-const INTERMEDIARY_GROUP_CHAT_ID_STR = process.env.INTERMEDIARY_GROUP_CHAT_ID; // Получаем как строку
-const INTERMEDIARY_GROUP_CHAT_ID = Number(INTERMEDIARY_GROUP_CHAT_ID_STR); // Преобразуем в число сразу
+const INTERMEDIARY_GROUP_CHAT_ID_STR = process.env.INTERMEDIARY_GROUP_CHAT_ID;
+const INTERMEDIARY_GROUP_CHAT_ID = Number(INTERMEDIARY_GROUP_CHAT_ID_STR);
 
 // --- Хранение запросов для связывания ответов ---
-// { id_сообщения_от_нашего_бота_в_группе: id_чата_пользователя }
 const pendingQueries = {};
 
 // --- Вспомогательная функция для экранирования символов MarkdownV2 ---
+// Экранируем все специальные символы MarkdownV2
 function escapeMarkdownV2(text) {
-    // Символы, которые нужно экранировать в MarkdownV2:
     // _ * [ ] ( ) ~ ` > # + - = | { } . !
-    // Слэш \ не экранируется, если он сам не является частью текста
+    // При замене \\$& (два слэша) экранируют сам бэкслэш в регулярном выражении
     return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
 }
 
@@ -53,13 +49,13 @@ async function forwardToAIBot(chatId, query) {
   }
 
   try {
+    // Экранируем username целевого AI-бота, так как он может содержать спецсимволы (как '_')
+    const escapedTargetBotUsername = escapeMarkdownV2(TARGET_AI_BOT_USERNAME);
     // Экранируем пользовательский запрос для MarkdownV2
     const escapedQuery = escapeMarkdownV2(query);
     
-    // Формируем запрос с явным упоминанием AI-бота, используя Zero Width Non-Joiner (U+200C)
-    // и MarkdownV2 для создания сущности упоминания.
-    // Это должно помочь GigaChat увидеть себя упомянутым.
-    const messageForAIBot = `@\u200C${TARGET_AI_BOT_USERNAME} ${escapedQuery}`; 
+    // Формируем запрос с явным упоминанием AI-бота, без \u200C
+    const messageForAIBot = `@${escapedTargetBotUsername} ${escapedQuery}`; 
     console.log(`[Proxy AI] Sending formatted message "${messageForAIBot}" to group ID: ${INTERMEDIARY_GROUP_CHAT_ID}`);
 
     // Отправляем сообщение в групповой чат
@@ -70,7 +66,7 @@ async function forwardToAIBot(chatId, query) {
     );
     
     // Сохраняем информацию, чтобы знать, кому отвечать, когда придет ответ от AI-бота
-    pendingQueries[sentMessage.message_id] = chatId; // pendingQueries[id нашего сообщения в группе] = id чата пользователя
+    pendingQueries[sentMessage.message_id] = chatId;
 
     await bot.sendMessage(chatId, "AI думает...", { reply_to_message_id: sentMessage.message_id });
 
@@ -80,6 +76,9 @@ async function forwardToAIBot(chatId, query) {
         console.error('[Proxy AI] Telegram API Error description:', error.response.data.description);
         if (error.response.data.description.includes("group chat was upgraded to a supergroup")) {
             return bot.sendMessage(chatId, "Ошибка Telegram API: Кажется, ID вашей промежуточной группы устарел. Пожалуйста, пересоздайте группу и получите новый ID, или проверьте, что ID группы в Render актуален.");
+        }
+        if (error.response.data.description.includes("can't parse entities")) {
+            return bot.sendMessage(chatId, "Ошибка форматирования текста: Возможно, ваш запрос содержит специальные символы MarkdownV2, которые не удалось обработать. Попробуйте перефразировать вопрос.");
         }
     }
     return bot.sendMessage(chatId, "Произошла ошибка при отправке запроса AI. Пожалуйста, попробуйте еще раз позже.");
@@ -103,6 +102,7 @@ bot.on('message', async (msg) => {
   // --- Если это сообщение пришло из нашей *промежуточной группы* ---
   if (chatId === INTERMEDIARY_GROUP_CHAT_ID) { 
     // Проверяем, является ли это ответом от *нашего* сообщения, отправленного в группу
+    // или от другого участника группы (предполагаем, что GigaChat ответит на наше сообщение)
     if (msg.reply_to_message && pendingQueries[msg.reply_to_message.message_id]) {
       const originalUserChatId = pendingQueries[msg.reply_to_message.message_id];
       const aiResponseText = msg.text;
@@ -114,7 +114,7 @@ bot.on('message', async (msg) => {
       
       // Удаляем запрос из очереди
       delete pendingQueries[msg.reply_to_message.message_id];
-      return; // Обработали ответ AI, дальше не идем
+      return;
     }
   }
 
@@ -144,7 +144,7 @@ bot.on('message', async (msg) => {
   else if (!text.startsWith('/')) {
     if (text.trim().length > 0) {
       await bot.sendChatAction(chatId, 'typing');
-      await forwardToAIBot(chatId, text); // ИСПОЛЬЗУЕМ ФУНКЦИЮ ПРОКСИ
+      await forwardToAIBot(chatId, text);
     } else {
       await bot.sendMessage(chatId, "Пожалуйста, введите ваш вопрос.");
     }
